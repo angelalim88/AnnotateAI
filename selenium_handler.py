@@ -84,27 +84,55 @@ class ProdigyHandler:
         try:
             formatted_label = label_name.upper()
             selector = f"//label[@data-prodigy-label='{formatted_label}']"
-            
+
             try:
-                label_element = WebDriverWait(self.driver, 3).until(
+                label_element = WebDriverWait(self.driver, 5).until(
                     EC.element_to_be_clickable((By.XPATH, selector))
                 )
-                
-                self.driver.execute_script("arguments[0].scrollIntoView(true);", label_element)
-                time.sleep(0.2)
-                
-                label_element.click()
-                print(f"   ✅ Selected label: {formatted_label}")
-                time.sleep(0.3)
-                return True
-                
+
+                # Wait for any progress/loading elements to disappear
+                try:
+                    WebDriverWait(self.driver, 3).until_not(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "._Progress-root-0-1-1309, ._Progress-root-0-1-1487, ._Progress-root-0-1-1576"))
+                    )
+                except:
+                    pass
+
+                # Scroll to element and wait
+                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", label_element)
+                time.sleep(0.5)
+
+                # Try multiple click methods
+                try:
+                    # Method 1: Regular click
+                    label_element.click()
+                    print(f"   ✅ Selected label: {formatted_label}")
+                    time.sleep(0.5)
+                    return True
+                except:
+                    try:
+                        # Method 2: JavaScript click
+                        self.driver.execute_script("arguments[0].click();", label_element)
+                        print(f"   ✅ Selected label: {formatted_label} (JS click)")
+                        time.sleep(0.5)
+                        return True
+                    except:
+                        # Method 3: Action chains
+                        from selenium.webdriver.common.action_chains import ActionChains
+                        actions = ActionChains(self.driver)
+                        actions.move_to_element(label_element).click().perform()
+                        print(f"   ✅ Selected label: {formatted_label} (Action chains)")
+                        time.sleep(0.5)
+                        return True
+
             except Exception as e:
                 print(f"   ❌ Label '{formatted_label}' not found: {e}")
                 return False
-        
+
         except Exception as e:
             print(f"   ❌ Error clicking label {label_name}: {e}")
             return False
+
 
     def annotate_text_spans(self, label_name):
         try:
@@ -245,80 +273,112 @@ class ProdigyHandler:
     
     def auto_save_progress(self):
         try:
-            save_selectors = [
-                "//button[contains(@class, 'save')]",
-                "//button[contains(@title, 'Save')]",
-                "//button[contains(@aria-label, 'Save')]",
-                "//*[contains(@class, 'save-button')]",
-                "//div[contains(@class, 'prodigy-sidebar')]//button",
-                "//aside//button[contains(@class, 'button')]",
-                "//*[@role='button' and contains(@class, 'save')]",
-                "//button[contains(text(), 'Save')]"
-            ]
-            
-            for selector in save_selectors:
-                try:
-                    save_btn = WebDriverWait(self.driver, 2).until(
-                        EC.element_to_be_clickable((By.XPATH, selector))
-                    )
-                    
-                    self.driver.execute_script("arguments[0].scrollIntoView(true);", save_btn)
-                    time.sleep(0.2)
-                    
-                    save_btn.click()
-                    print(f"   💾 Progress saved successfully")
-                    time.sleep(1)
-                    return True
-                except:
-                    continue
-            
-            try:
-                sidebar_buttons = self.driver.find_elements(By.XPATH, "//aside//button | //div[contains(@class, 'sidebar')]//button")
-                for btn in sidebar_buttons:
-                    if btn.is_displayed() and btn.is_enabled():
-                        btn.click()
-                        print(f"   💾 Progress saved with sidebar button")
-                        time.sleep(1)
-                        return True
-            except:
-                pass
-            
-            print("   ❌ Save button not found")
-            return False
-            
+            # Wait sebentar untuk save button muncul setelah accept
+            time.sleep(1)
+
+            save_btn = WebDriverWait(self.driver, 5).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[data-test="sidebar-button-save"]'))
+            )
+
+            if save_btn.is_displayed() and save_btn.is_enabled():
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", save_btn)
+                time.sleep(0.2)
+                save_btn.click()
+                print("   💾 Progress saved successfully")
+                time.sleep(1)
+                return True
+            else:
+                print("   ❌ Save button not visible or enabled")
+                return False
+
         except Exception as e:
-            print(f"   ❌ Error saving progress: {e}")
-            return False
+            print(f"   ❌ Save button not available: {e}")
+            # Fallback: keyboard shortcut
+            try:
+                from selenium.webdriver.common.keys import Keys
+                from selenium.webdriver.common.action_chains import ActionChains
+
+                actions = ActionChains(self.driver)
+                actions.key_down(Keys.CONTROL).send_keys('s').key_up(Keys.CONTROL).perform()
+                print("   💾 Progress saved using Ctrl+S")
+                time.sleep(1)
+                return True
+            except:
+                return False
+
+
+
+        def debug_save_button(self):
+            """Debug method untuk cari save button"""
+        try:
+            print("   🔍 Debugging save button...")
+
+            # Cari semua button di page
+            all_buttons = self.driver.find_elements(By.TAG_NAME, "button")
+            print(f"   Found {len(all_buttons)} buttons on page")
+
+            for i, btn in enumerate(all_buttons[:10]):  # Check first 10 buttons
+                try:
+                    aria_label = btn.get_attribute("aria-label") or "None"
+                    title = btn.get_attribute("title") or "None"
+                    data_test = btn.get_attribute("data-test") or "None"
+                    class_name = btn.get_attribute("class") or "None"
+
+                    print(f"   Button {i+1}:")
+                    print(f"     aria-label: {aria_label}")
+                    print(f"     title: {title}")
+                    print(f"     data-test: {data_test}")
+                    print(f"     class: {class_name}")
+                    print(f"     visible: {btn.is_displayed()}")
+                    print(f"     enabled: {btn.is_enabled()}")
+                    print("   ---")
+
+                    # Check if this looks like save button
+                    if any(keyword in text.lower() for text in [aria_label, title, data_test] 
+                           for keyword in ["save", "ctrl+s", "command+s"]):
+                        print(f"   🎯 Found potential save button: Button {i+1}")
+
+                except Exception as e:
+                    print(f"   Error checking button {i+1}: {e}")
+
+        except Exception as e:
+            print(f"   Error in debug: {e}")
+    
+
+
     
     def check_no_tasks(self):
         try:
-            no_task_texts = [
-                "No tasks available",
-                "Make sure to save your progress",
-                "No more tasks",
-                "All tasks completed",
-                "Session completed",
-                "Annotation complete"
-            ]
-            
-            page_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
-            
-            for text in no_task_texts:
-                if text.lower() in page_text:
-                    return True
-            
+            # Check for the specific "No tasks available" message
             try:
-                labels = self.driver.find_elements(By.XPATH, "//label[@data-prodigy-label]")
-                if not labels:
+                no_tasks_element = self.driver.find_element(
+                    By.CSS_SELECTOR, 
+                    "._Annotator-message-0-1-157, .prodigy-message"
+                )
+                if "No tasks available" in no_tasks_element.text:
                     return True
             except:
                 pass
-            
+
+            # Fallback: check page text
+            page_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+            no_task_phrases = [
+                "no tasks available",
+                "make sure to save your progress",
+                "no more tasks",
+                "all tasks completed"
+            ]
+
+            for phrase in no_task_phrases:
+                if phrase in page_text:
+                    return True
+
             return False
-            
+
         except Exception as e:
             print(f"   Error checking task status: {e}")
             return False
+
     
     def close(self):
         if self.driver:
@@ -327,3 +387,7 @@ class ProdigyHandler:
                 print("   Browser closed successfully")
             except Exception as e:
                 print(f"   Error closing browser: {e}")
+
+            
+            
+    

@@ -1,12 +1,9 @@
-# Konfigurasi utama
 PRODIGY_URL = "https://anotasi.uajy.ac.id/nlp2/?session=220711789"
 DATASET_PATHS = [
     "test_preprocess.csv",
-    "train_preprocess.csv", 
-    "valid_preprocess.csv", 
+    "train_preprocess.csv"
 ]
 
-# Label mapping dari dataset ke Prodigy
 LABEL_MAPPING = {
     'fuel_positive': 'fuel_positive',
     'fuel_negative': 'fuel_negative', 
@@ -22,5 +19,6 @@ LABEL_MAPPING = {
     'service_negative': 'service_negative'
 }
 
-DELAY_BETWEEN_TASKS = 2
-SIMILARITY_THRESHOLD = 0.8
+DELAY_BETWEEN_TASKS = 1
+SIMILARITY_THRESHOLD = 0.15
+AUTO_SAVE_INTERVAL = 1

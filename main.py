@@ -1,5 +1,5 @@
 import time
-from config import PRODIGY_URL, DELAY_BETWEEN_TASKS, AUTO_SAVE_INTERVAL
+from config import PRODIGY_URL, DELAY_BETWEEN_TASKS
 from data_processor import load_all_datasets, extract_non_neutral_labels
 from rag_handler import RAGHandler
 from selenium_handler import ProdigyHandler
@@ -36,15 +36,17 @@ def process_single_task(prodigy, rag):
 def run_full_automation(prodigy, rag):
     task_count = 0
     success_count = 0
-    max_consecutive_errors = 3
+    max_consecutive_errors = 5  # Increase threshold
     consecutive_errors = 0
-    last_save_count = 0
+    max_total_errors = 50  # Add max total errors
+    total_errors = 0
     
     print("\n🚀 Memulai full automation...")
-    print(f"💾 Auto-save akan dilakukan setiap {AUTO_SAVE_INTERVAL} task yang berhasil")
+    print("💾 Auto-save akan dilakukan setiap 1 task yang berhasil")
     
     while task_count < 1080:
         try:
+            # Check for "No tasks available" message
             if prodigy.check_no_tasks():
                 print("\n✅ Semua task selesai!")
                 break
@@ -53,46 +55,53 @@ def run_full_automation(prodigy, rag):
             
             if process_single_task(prodigy, rag):
                 success_count += 1
-                consecutive_errors = 0
+                consecutive_errors = 0  # Reset consecutive errors on success
                 print(f"✅ Task #{task_count + 1} berhasil")
                 
-                if success_count - last_save_count >= AUTO_SAVE_INTERVAL:
-                    print(f"\n💾 Auto-saving progress after {success_count} successful tasks...")
-                    if prodigy.auto_save_progress():
-                        last_save_count = success_count
-                        print(f"✅ Progress saved! Total completed: {success_count}")
-                    else:
-                        print("❌ Auto-save failed, but continuing...")
+                print(f"💾 Auto-saving progress...")
+                if prodigy.auto_save_progress():
+                    print(f"✅ Progress saved! Total completed: {success_count}")
+                else:
+                    print("❌ Auto-save failed, but continuing...")
                 
             else:
                 consecutive_errors += 1
-                print(f"❌ Task #{task_count + 1} gagal")
+                total_errors += 1
+                print(f"❌ Task #{task_count + 1} gagal (consecutive: {consecutive_errors}, total: {total_errors})")
                 
-                if consecutive_errors >= max_consecutive_errors:
-                    print(f"❌ Terlalu banyak error berturut-turut. Stopping automation.")
+                # Stop only if too many consecutive errors AND total errors is high
+                if consecutive_errors >= max_consecutive_errors and total_errors > 10:
+                    print(f"❌ Terlalu banyak error berturut-turut ({consecutive_errors}) dan total error tinggi ({total_errors}). Stopping automation.")
+                    break
+                
+                # Or stop if total errors is extremely high
+                if total_errors >= max_total_errors:
+                    print(f"❌ Total error terlalu tinggi ({total_errors}). Stopping automation.")
                     break
             
             task_count += 1
             
             if task_count % 25 == 0:
                 success_rate = (success_count / task_count) * 100
+                error_rate = (total_errors / task_count) * 100
                 print(f"\n📊 Progress Report:")
                 print(f"   Tasks processed: {task_count}/1080")
                 print(f"   Successful: {success_count}")
                 print(f"   Success rate: {success_rate:.1f}%")
-                print(f"   Last saved at: {last_save_count} tasks")
+                print(f"   Error rate: {error_rate:.1f}%")
             
             time.sleep(DELAY_BETWEEN_TASKS)
             
         except KeyboardInterrupt:
             print("\n⏹️ Automation dihentikan oleh user")
-            print("💾 Saving progress before exit...")
+            print("💾 Final save before exit...")
             prodigy.auto_save_progress()
             break
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
             consecutive_errors += 1
-            if consecutive_errors >= max_consecutive_errors:
+            total_errors += 1
+            if consecutive_errors >= max_consecutive_errors and total_errors > 10:
                 break
     
     print(f"\n💾 Final save...")
@@ -100,11 +109,15 @@ def run_full_automation(prodigy, rag):
         print("✅ Final progress saved!")
     
     success_rate = (success_count / task_count) * 100 if task_count > 0 else 0
+    error_rate = (total_errors / task_count) * 100 if task_count > 0 else 0
     print(f"\n📈 Final Stats:")
     print(f"   Total tasks processed: {task_count}")
     print(f"   Successful: {success_count}")
+    print(f"   Total errors: {total_errors}")
     print(f"   Success rate: {success_rate:.1f}%")
-    print(f"   Total saves performed: {(success_count // AUTO_SAVE_INTERVAL) + 1}")
+    print(f"   Error rate: {error_rate:.1f}%")
+    print(f"   Total saves performed: {success_count}")
+
 
 def test_single_task(prodigy, rag):
     print("\n🧪 Testing single task...")
@@ -150,8 +163,21 @@ def test_save_function(prodigy):
         print("✅ Save function working!")
         return True
     else:
-        print("❌ Save function not working, check selector")
-        return False
+        print("❌ Save function not working")
+        
+        try:
+            from selenium.webdriver.common.keys import Keys
+            from selenium.webdriver.common.action_chains import ActionChains
+            
+            print("   Trying keyboard shortcut Ctrl+S...")
+            actions = ActionChains(prodigy.driver)
+            actions.key_down(Keys.CONTROL).send_keys('s').key_up(Keys.CONTROL).perform()
+            time.sleep(2)
+            print("   ✅ Keyboard save attempted")
+            return True
+        except Exception as e:
+            print(f"   ❌ Keyboard save failed: {e}")
+            return False
 
 def main():
     print("🚀 Starting Prodigy Multi-Label Automation...")
