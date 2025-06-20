@@ -1,11 +1,10 @@
 import time
-from config import PRODIGY_URL, DELAY_BETWEEN_TASKS
+from config import PRODIGY_URL, DELAY_BETWEEN_TASKS, AUTO_SAVE_INTERVAL
 from data_processor import load_all_datasets, extract_non_neutral_labels
 from rag_handler import RAGHandler
 from selenium_handler import ProdigyHandler
 
 def process_single_task(prodigy, rag):
-    """Process 1 task dengan multi-step annotation"""
     try:
         current_text = prodigy.get_current_text()
         if not current_text:
@@ -14,7 +13,6 @@ def process_single_task(prodigy, rag):
         
         print(f"📝 Text: {current_text[:100]}...")
         
-        # Cari label yang perlu di-annotate
         labels_to_annotate = rag.find_labels_to_annotate(current_text)
         
         if not labels_to_annotate:
@@ -23,12 +21,9 @@ def process_single_task(prodigy, rag):
         
         print(f"🎯 Predicted labels: {labels_to_annotate}")
         
-        # Process setiap label satu per satu
         if prodigy.process_multiple_labels(labels_to_annotate):
             print(f"✅ Berhasil process {len(labels_to_annotate)} labels")
-            
-            # Submit task setelah semua label selesai
-            time.sleep(2)  # Wait before submit
+            time.sleep(0.5)
             return prodigy.submit_task()
         else:
             print("❌ Gagal process labels")
@@ -39,17 +34,17 @@ def process_single_task(prodigy, rag):
         return False
 
 def run_full_automation(prodigy, rag):
-    """Run full automation dengan better error handling"""
     task_count = 0
     success_count = 0
-    max_consecutive_errors = 3  # Reduce threshold
+    max_consecutive_errors = 3
     consecutive_errors = 0
+    last_save_count = 0
     
     print("\n🚀 Memulai full automation...")
+    print(f"💾 Auto-save akan dilakukan setiap {AUTO_SAVE_INTERVAL} task yang berhasil")
     
-    while task_count < 1080:  # Limit to 1080 tasks
+    while task_count < 1080:
         try:
-            # Check if no more tasks
             if prodigy.check_no_tasks():
                 print("\n✅ Semua task selesai!")
                 break
@@ -60,6 +55,15 @@ def run_full_automation(prodigy, rag):
                 success_count += 1
                 consecutive_errors = 0
                 print(f"✅ Task #{task_count + 1} berhasil")
+                
+                if success_count - last_save_count >= AUTO_SAVE_INTERVAL:
+                    print(f"\n💾 Auto-saving progress after {success_count} successful tasks...")
+                    if prodigy.auto_save_progress():
+                        last_save_count = success_count
+                        print(f"✅ Progress saved! Total completed: {success_count}")
+                    else:
+                        print("❌ Auto-save failed, but continuing...")
+                
             else:
                 consecutive_errors += 1
                 print(f"❌ Task #{task_count + 1} gagal")
@@ -70,15 +74,20 @@ def run_full_automation(prodigy, rag):
             
             task_count += 1
             
-            # Progress info
-            if task_count % 10 == 0:
+            if task_count % 25 == 0:
                 success_rate = (success_count / task_count) * 100
-                print(f"\n📊 Progress: {task_count}/1080 tasks, {success_rate:.1f}% success rate")
+                print(f"\n📊 Progress Report:")
+                print(f"   Tasks processed: {task_count}/1080")
+                print(f"   Successful: {success_count}")
+                print(f"   Success rate: {success_rate:.1f}%")
+                print(f"   Last saved at: {last_save_count} tasks")
             
-            time.sleep(2)  # Delay between tasks
+            time.sleep(DELAY_BETWEEN_TASKS)
             
         except KeyboardInterrupt:
             print("\n⏹️ Automation dihentikan oleh user")
+            print("💾 Saving progress before exit...")
+            prodigy.auto_save_progress()
             break
         except Exception as e:
             print(f"❌ Unexpected error: {e}")
@@ -86,17 +95,18 @@ def run_full_automation(prodigy, rag):
             if consecutive_errors >= max_consecutive_errors:
                 break
     
-    # Final stats
+    print(f"\n💾 Final save...")
+    if prodigy.auto_save_progress():
+        print("✅ Final progress saved!")
+    
     success_rate = (success_count / task_count) * 100 if task_count > 0 else 0
     print(f"\n📈 Final Stats:")
     print(f"   Total tasks processed: {task_count}")
     print(f"   Successful: {success_count}")
     print(f"   Success rate: {success_rate:.1f}%")
-
-
+    print(f"   Total saves performed: {(success_count // AUTO_SAVE_INTERVAL) + 1}")
 
 def test_single_task(prodigy, rag):
-    """Test process 1 task saja untuk validasi"""
     print("\n🧪 Testing single task...")
     
     try:
@@ -108,7 +118,6 @@ def test_single_task(prodigy, rag):
         print(f"📝 Text yang akan diproses:")
         print(f"   {current_text}")
         
-        # Cari label yang cocok
         labels_to_annotate = rag.find_labels_to_annotate(current_text)
         
         print(f"\n🎯 AI memprediksi labels:")
@@ -118,7 +127,6 @@ def test_single_task(prodigy, rag):
         else:
             print("   Tidak ada label yang cocok (akan di-skip)")
         
-        # Tanya user apakah prediksi benar
         print(f"\n❓ Apakah prediksi AI sudah benar?")
         response = input("   (y)es / (n)o / (s)kip test: ")
         
@@ -135,18 +143,25 @@ def test_single_task(prodigy, rag):
         print(f"❌ Error in test: {e}")
         return False
 
+def test_save_function(prodigy):
+    print("\n🧪 Testing save function...")
+    
+    if prodigy.auto_save_progress():
+        print("✅ Save function working!")
+        return True
+    else:
+        print("❌ Save function not working, check selector")
+        return False
+
 def main():
-    """Main function untuk menjalankan automation"""
     print("🚀 Starting Prodigy Multi-Label Automation...")
     print("=" * 50)
     
     try:
-        # 1. Load datasets
         print("\n📊 Step 1: Loading datasets...")
         df = load_all_datasets()
         print(f"   Loaded {len(df)} total rows from datasets")
         
-        # 2. Extract knowledge data
         print("\n🔍 Step 2: Extracting non-neutral labels...")
         knowledge_data = extract_non_neutral_labels(df)
         print(f"   Extracted {len(knowledge_data)} knowledge entries")
@@ -155,31 +170,28 @@ def main():
             print("❌ Tidak ada data non-neutral ditemukan!")
             return
         
-        # Show sample knowledge data
         print(f"\n📋 Sample knowledge entries:")
         for i, item in enumerate(knowledge_data[:3], 1):
             print(f"   {i}. {item['text'][:50]}... -> {item['prodigy_label']}")
         
-        # 3. Setup RAG
         print("\n🧠 Step 3: Setting up RAG system...")
         rag = RAGHandler()
         rag.setup_vectorstore(knowledge_data)
         print("   RAG system ready!")
         
-        # 4. Setup Selenium
         print(f"\n🌐 Step 4: Opening Prodigy...")
         print(f"   URL: {PRODIGY_URL}")
         prodigy = ProdigyHandler(PRODIGY_URL)
         
-        # Wait for page to load
         time.sleep(3)
         print("   Prodigy loaded!")
         
-        # 5. Test single task
+        if not test_save_function(prodigy):
+            print("⚠️ Save function might not work, but continuing...")
+        
         if test_single_task(prodigy, rag):
             print("\n✅ Test berhasil!")
             
-            # Ask user untuk lanjut full automation
             print("\n🤖 Mau lanjut ke full automation?")
             response = input("   (y)es / (n)o: ")
             
@@ -199,7 +211,6 @@ def main():
         traceback.print_exc()
     
     finally:
-        # 6. Cleanup
         print("\n🧹 Cleaning up...")
         try:
             if 'prodigy' in locals():
