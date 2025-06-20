@@ -5,7 +5,7 @@ from rag_handler import RAGHandler
 from selenium_handler import ProdigyHandler
 
 def process_single_task(prodigy, rag):
-    """Process 1 task dengan multiple labels"""
+    """Process 1 task dengan multi-step annotation"""
     try:
         current_text = prodigy.get_current_text()
         if not current_text:
@@ -14,76 +14,86 @@ def process_single_task(prodigy, rag):
         
         print(f"📝 Text: {current_text[:100]}...")
         
-        # Cari label apa saja yang perlu di-annotate
+        # Cari label yang perlu di-annotate
         labels_to_annotate = rag.find_labels_to_annotate(current_text)
+        
+        if not labels_to_annotate:
+            print("⏭️ Tidak ada label yang cocok, skip task")
+            return prodigy.click_ignore()
         
         print(f"🎯 Predicted labels: {labels_to_annotate}")
         
-        if labels_to_annotate:
-            # Click semua label yang diprediksi
-            success = prodigy.click_multiple_labels(labels_to_annotate)
-            if success:
-                print(f"✅ Berhasil click {len(labels_to_annotate)} labels")
-                # Submit task setelah semua label di-click
-                time.sleep(1)  # Wait sebentar sebelum submit
-                prodigy.submit_task()
-            else:
-                print("❌ Gagal click labels")
-                return False
+        # Process setiap label satu per satu
+        if prodigy.process_multiple_labels(labels_to_annotate):
+            print(f"✅ Berhasil process {len(labels_to_annotate)} labels")
+            
+            # Submit task setelah semua label selesai
+            time.sleep(2)  # Wait before submit
+            return prodigy.submit_task()
         else:
-            # Tidak ada label yang cocok, skip task
-            print("⏭️ Tidak ada label yang cocok, skip task")
-            prodigy.click_ignore()
-        
-        return True
+            print("❌ Gagal process labels")
+            return False
         
     except Exception as e:
         print(f"❌ Error in process task: {e}")
         return False
 
 def run_full_automation(prodigy, rag):
-    """Run full automation untuk semua tasks"""
+    """Run full automation dengan better error handling"""
     task_count = 0
     success_count = 0
+    max_consecutive_errors = 3  # Reduce threshold
+    consecutive_errors = 0
     
     print("\n🚀 Memulai full automation...")
     
-    while True:
-        # Check apakah sudah tidak ada task lagi
-        if prodigy.check_no_tasks():
-            print("\n✅ Semua task selesai!")
-            break
-        
-        print(f"\n📋 Processing task #{task_count + 1}")
-        
-        # Process current task
-        if process_single_task(prodigy, rag):
-            success_count += 1
-            print(f"✅ Task #{task_count + 1} berhasil")
-        else:
-            print(f"❌ Task #{task_count + 1} gagal")
-            
-            # Tanya user mau lanjut atau stop
-            response = input("Ada error. Lanjut? (y/n): ")
-            if response.lower() != 'y':
+    while task_count < 1080:  # Limit to 1080 tasks
+        try:
+            # Check if no more tasks
+            if prodigy.check_no_tasks():
+                print("\n✅ Semua task selesai!")
                 break
-        
-        task_count += 1
-        
-        # Progress info setiap 10 tasks
-        if task_count % 10 == 0:
-            success_rate = (success_count / task_count) * 100
-            print(f"\n📊 Progress: {task_count} tasks, {success_rate:.1f}% success rate")
-        
-        # Delay before next task
-        time.sleep(DELAY_BETWEEN_TASKS)
+            
+            print(f"\n📋 Processing task #{task_count + 1}")
+            
+            if process_single_task(prodigy, rag):
+                success_count += 1
+                consecutive_errors = 0
+                print(f"✅ Task #{task_count + 1} berhasil")
+            else:
+                consecutive_errors += 1
+                print(f"❌ Task #{task_count + 1} gagal")
+                
+                if consecutive_errors >= max_consecutive_errors:
+                    print(f"❌ Terlalu banyak error berturut-turut. Stopping automation.")
+                    break
+            
+            task_count += 1
+            
+            # Progress info
+            if task_count % 10 == 0:
+                success_rate = (success_count / task_count) * 100
+                print(f"\n📊 Progress: {task_count}/1080 tasks, {success_rate:.1f}% success rate")
+            
+            time.sleep(2)  # Delay between tasks
+            
+        except KeyboardInterrupt:
+            print("\n⏹️ Automation dihentikan oleh user")
+            break
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+            consecutive_errors += 1
+            if consecutive_errors >= max_consecutive_errors:
+                break
     
-    # Final statistics
+    # Final stats
     success_rate = (success_count / task_count) * 100 if task_count > 0 else 0
     print(f"\n📈 Final Stats:")
-    print(f"   Total tasks: {task_count}")
+    print(f"   Total tasks processed: {task_count}")
     print(f"   Successful: {success_count}")
     print(f"   Success rate: {success_rate:.1f}%")
+
+
 
 def test_single_task(prodigy, rag):
     """Test process 1 task saja untuk validasi"""
